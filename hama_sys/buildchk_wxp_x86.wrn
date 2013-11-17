@@ -1,0 +1,15 @@
+1>warnings in directory c:\users\redbit\desktop\bob_o\hama_sys
+1>c:\users\redbit\desktop\bob_o\hama_sys\start_vm.cpp(71) : warning C4100: 'DriverObject' : unreferenced formal parameter
+1>c:\users\redbit\desktop\bob_o\hama_sys\start_vm.cpp(81) : warning C4189: 'ExitESI' : local variable is initialized but not referenced
+1>c:\users\redbit\desktop\bob_o\hama_sys\start_vm.cpp(76) : warning C4189: 'ExitECX' : local variable is initialized but not referenced
+1>c:\users\redbit\desktop\bob_o\hama_sys\start_vm.cpp(80) : warning C4189: 'ExitEBP' : local variable is initialized but not referenced
+1>c:\users\redbit\desktop\bob_o\hama_sys\start_vm.cpp(73) : warning C4189: 'ExitEFlags' : local variable is initialized but not referenced
+1>c:\users\redbit\desktop\bob_o\hama_sys\start_vm.cpp(78) : warning C4189: 'ExitEBX' : local variable is initialized but not referenced
+1>c:\users\redbit\desktop\bob_o\hama_sys\start_vm.cpp(82) : warning C4189: 'ExitEDI' : local variable is initialized but not referenced
+1>c:\users\redbit\desktop\bob_o\hama_sys\start_vm.cpp(79) : warning C4189: 'ExitESP' : local variable is initialized but not referenced
+1>c:\users\redbit\desktop\bob_o\hama_sys\start_vm.cpp(77) : warning C4189: 'ExitEDX' : local variable is initialized but not referenced
+1>c:\users\redbit\desktop\bob_o\hama_sys\start_vm.cpp(75) : warning C4189: 'ExitEAX' : local variable is initialized but not referenced
+1>c:\users\redbit\desktop\bob_o\hama_sys\start_vm.cpp(122) : warning C4189: 'cr4' : local variable is initialized but not referenced
+1>c:\users\redbit\desktop\bob_o\hama_sys\start_vm.cpp(1310) : warning C4127: conditional expression is constant
+1>c:\users\redbit\desktop\bob_o\hama_sys\start_vm.cpp(2201) : warning C4102: 'Exit' : unreferenced label
+1>c:\users\redbit\desktop\bob_o\hama_sys\start_vm.cpp(2514) : warning C4127: conditional expression is constant
