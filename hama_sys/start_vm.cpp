@@ -11,7 +11,9 @@
 #include "DriverDebug.h"
 #include "scancode.h"
 #include "start_vm.h"
-#include <wdm.h>
+
+
+
 
 
 ///////////////
@@ -39,6 +41,7 @@ IA32_FEATURE_CONTROL_MSR	vmxFeatureControl ;
 CR0_REG						cr0_reg = {0};
 CR4_REG						cr4_reg = {0};
 
+long long					temp64 = 0;
 ULONG						temp32 = 0;
 USHORT						temp16 = 0;
 
@@ -506,7 +509,6 @@ __declspec( naked ) VOID StartVMX( )
 	{
 		PUSH	DWORD PTR 0
 		PUSH	DWORD PTR _vcpu.vmcs_region_physical.LowPart
-		int 3
 		_emit	0x66	// VMCLEAR [ESP]
 		_emit	0x0F
 		_emit	0xc7
@@ -688,21 +690,43 @@ __declspec( naked ) VOID StartVMX( )
 				temp32 &= msr.Hi;
 				
 				//> somma
-				set_bit32(&temp32, PROC_BASED_USE_IOBITMAP);				// Use I/O bitmaps
-				set_bit32(&temp32, PROC_BASED_HLT_EXITING);					// HLT
+				//set_bit32(&temp32, PROC_BASED_USE_IOBITMAP);				// Use I/O bitmaps
+				//set_bit32(&temp32, PROC_BASED_HLT_EXITING);					// HLT
+
+				// enable Secondary VM Execution control
+				set_bit32(&temp32, 31);
 
 				Log( "Setting Pri Proc-Based Controls Mask" , temp32 );
 				WriteVMCS( 0x00004002, temp32 );
 
+				// IA32_VMX_PROCBASED_CTLS2 (index 48Bh )
+				// bit 1 is EPT 
+				// Secondary VM Execution control encoding 401eH
+				ReadMSR(0x48b);
+				temp32 = 0;
+				//temp32 |= msr.Lo;
+				//temp32 &= msr.Hi;
 
-				/*
-				*((char*)_vcpu.io_bitmap_a + (0x60/8)) = 0x11;
-				*/
-				*(_vcpu.io_bitmap_a + (0x60/8)) = 0x11;
-				WriteVMCS(IO_BITMAP_A_HIGH, _vcpu.io_bitmap_a_physical.HighPart);
-				WriteVMCS(IO_BITMAP_A, _vcpu.io_bitmap_a_physical.LowPart);
-				WriteVMCS(IO_BITMAP_B_HIGH, _vcpu.io_bitmap_b_physical.HighPart);
-				WriteVMCS(IO_BITMAP_B, _vcpu.io_bitmap_b_physical.LowPart);
+				set_bit32(&temp32, 1); // enable EPT
+				//set_bit32(&temp32, 5); // enable VPID
+
+
+				Log("Setting Sec Proc-Based Controls Mask", temp32);
+				WriteVMCS(0x401e, temp32 );
+
+				//temp32 = 1;
+				//WriteVMCS(0, temp32);// VPID = 1
+
+
+
+				///*
+				//*((char*)_vcpu.io_bitmap_a + (0x60/8)) = 0x11;
+				//*/
+				//*(_vcpu.io_bitmap_a + (0x60/8)) = 0x11;
+				//WriteVMCS(IO_BITMAP_A_HIGH, _vcpu.io_bitmap_a_physical.HighPart);
+				//WriteVMCS(IO_BITMAP_A, _vcpu.io_bitmap_a_physical.LowPart);
+				//WriteVMCS(IO_BITMAP_B_HIGH, _vcpu.io_bitmap_b_physical.HighPart);
+				//WriteVMCS(IO_BITMAP_B, _vcpu.io_bitmap_b_physical.LowPart);
 
 
 
@@ -1287,6 +1311,50 @@ __declspec( naked ) VOID StartVMX( )
 	Log( "Setting Host EIP" , VMMEntryPoint );
 	WriteVMCS( 0x00006C16, (ULONG)VMMEntryPoint );
 
+	/*
+	
+			Enable EPT
+				64bit control
+	*/
+	
+	__asm{
+		mov eax, 0x80000008
+		cpuid
+		mov temp32, eax
+	}
+	Log("Physical Address Width", temp32 & 0x7f);
+
+	ReadMSR(0x48c);
+	Log("IA32_VMX_EPT_VPID_CAP Lo", msr.Lo);
+	Log("IA32_VMX_EPT_VPID_CAP Hi", msr.Hi);
+
+	if (msr.Lo & (1 << 0)) Log("Execute Only Support", msr.Lo);
+	if (msr.Lo & (1 << 6)) Log("Page walk support 4", msr.Lo);
+	if (msr.Lo & (1 << 8)) Log("Support Mem type UC", msr.Lo);
+	if (msr.Lo & (1 << 14)) Log("Support Mem type WB", msr.Lo);
+	if (msr.Lo & (1 << 16)) Log("Support Mem mapping 2M", msr.Lo);
+	if (msr.Lo & (1 << 17)) Log("Support Mem mapping 1G", msr.Lo);
+	
+	
+	//Log("Setting EPTP Full")
+	temp64 = (ULONG)_vcpu.ept_physical.LowPart;
+	temp64 <<= 12;
+	temp64 = temp64 | (0x3 << 0x3)/*walk length 4*/ | (6) /*mem type WB*/;
+
+	Log("EPTP Low Address", temp64);
+	WriteVMCS(0x201a, temp64 );
+
+	temp32 = (ULONG)_vcpu.ept_physical.HighPart;
+	Log("Setting EPTP High", temp64 >> 32 );
+	WriteVMCS(0x201b, temp32);
+
+
+	/*
+	
+			Enable EPT END
+		
+	*/
+
 	////////////////
 	//            //
 	//	VMLAUNCH  //
@@ -1401,6 +1469,53 @@ ULONG		movcrLMSWSourceData;
 //  VMM Entry Point  //
 //                   //
 ///////////////////////
+
+#define LOG_REGISTER( reginame ) Log("Guest" #reginame, Guest##reginame)
+void print_guest_register()
+{
+	Log("=================================================", 0x00000000);
+	LOG_REGISTER(EAX);
+	LOG_REGISTER(EBX);
+	LOG_REGISTER(ECX);
+	LOG_REGISTER(EDX);
+	LOG_REGISTER(EDI);
+	LOG_REGISTER(ESI);
+	LOG_REGISTER(EBP);
+
+	__asm
+	{
+		PUSHAD
+
+			MOV		EAX, 0x0000681C
+
+			_emit	0x0F	// VMREAD  EBX, EAX
+			_emit	0x78
+			_emit	0xC3
+
+			MOV		GuestESP, EBX
+
+			POPAD
+	}
+	LOG_REGISTER(ESP);
+
+	__asm
+	{
+			PUSHAD
+
+			MOV		EAX, 0x0000681E
+
+			_emit	0x0F	// VMREAD  EBX, EAX
+			_emit	0x78
+			_emit	0xC3
+
+			MOV		GuestEIP, EBX
+
+			POPAD
+	}
+
+	LOG_REGISTER(EIP);
+	Log("=================================================", 0xffffffff);
+}
 __declspec( naked ) VOID VMMEntryPoint( )
 {
 	__asm	CLI
@@ -1791,6 +1906,41 @@ __declspec( naked ) VOID VMMEntryPoint( )
 			JMP		Resume
 		}
 	}
+	if (ExitReason == 0x00000002)
+	{
+		Log("VMX_EXIT_TRIPLE_FAULT!", 0xdeadbeef);
+
+		print_guest_register();
+		
+		__asm{
+			int 3
+			popad
+			jmp Resume
+		}
+	}
+	//////////////
+	//          //
+	//  VMCALL  //
+	//  VMX_EXIT_EPT_VIOLATION 48
+	//  VMX_EXIT_EPT_MISCONFIG 49        //
+	//////////////
+
+	if (ExitReason == 48){
+		Log("VMX_EXIT_VIOLATION", 0xdeadbeef);
+		__asm{
+			popad
+			jmp Resume
+		}
+	}
+
+	if (ExitReason == 49){
+		Log("VMX_EXIT_MISCONFIG", 0xdeadbeef);
+		__asm{
+			popad
+			jmp Resume
+		}
+	}
+
 
 	//////////////
 	//          //
@@ -2318,6 +2468,27 @@ VOID WriteVMCS( ULONG encoding, ULONG value )
 	}
 }
 
+VOID WriteVMCS64(ULONG encoding, ULONGLONG value)
+{
+	__asm{
+		pushad
+
+		push value
+		mov eax, encoding
+
+		_emit 0x0f
+		_emit 0x79
+		_emit 0x04
+		_emit 0x24
+
+		pop eax
+
+		popad
+
+
+	}
+}
+
 
 
 /**
@@ -2502,6 +2673,47 @@ NTSTATUS allocate_vcpu(OUT VCPU& cpu)
 		}
 		RtlZeroMemory((void*)cpu.io_bitmap_b, VMX_RGN_BLOCKSIZE);
 		cpu.io_bitmap_b_physical = MmGetPhysicalAddress( (void*)cpu.io_bitmap_b);
+
+		/*
+			Allocate EPT Memory
+		*/
+		cpu.ept = (PEPTPML4)MmAllocateNonCachedMemory(sizeof(EPTPML4));
+		cpu.ept_physical = MmGetPhysicalAddress((void*)cpu.ept);
+		RtlZeroMemory((void*)cpu.ept, sizeof(EPTPML4));
+
+
+		cpu.ept_pdpte = (PEPTPDPT)MmAllocateNonCachedMemory(sizeof(EPTPDPT));
+		cpu.ept_pdpte_physical = MmGetPhysicalAddress((void*)cpu.ept_pdpte);
+		RtlZeroMemory((void*)cpu.ept_pdpte, sizeof(EPTPDPT));
+
+		cpu.ept_pd = (PEPTPD)MmAllocateNonCachedMemory(sizeof(EPTPD));
+		cpu.ept_pd_physical = MmGetPhysicalAddress((void*)cpu.ept_pd);
+		RtlZeroMemory((void*)cpu.ept_pd, sizeof(EPTPD));
+
+		Log("EPT Address LowPart", cpu.ept_physical.LowPart);
+		Log("EPT Address HighPart", cpu.ept_physical.HighPart);
+
+		Log("EPT PDPTE LowPart", cpu.ept_pdpte_physical.LowPart);
+		Log("EPT PDPTE HighPart", cpu.ept_pdpte_physical.HighPart);
+
+		cpu.ept->a[0].u = cpu.ept_pdpte_physical.QuadPart | 0x7; /* READ WRITE EXECUTE */
+		//cpu.ept->a[1].u = cpu.ept_pdpte_physical.QuadPart | 0x7; /* READ WRITE EXECUTE */
+		//cpu.ept->a[2].u = cpu.ept_pdpte_physical.QuadPart | 0x7; /* READ WRITE EXECUTE */
+		//cpu.ept->a[3].u = cpu.ept_pdpte_physical.QuadPart | 0x7; /* READ WRITE EXECUTE */
+
+		cpu.ept_pdpte->a[0].u = cpu.ept_pd_physical.QuadPart | 0x7; /* READ WRITE EXECUTE */
+
+		ULONGLONG m = 0;
+		for (int i = 0; i < 512; i++)
+		{
+			cpu.ept_pd->a[i].u = m | 0x7 | (6<<3) /*mem type WB*/ | (1<<7) /* mem mapping 2m */ | (1<<6)/* ignore pat mem type */;
+			m += 2097152 << 12; // 2m
+		}
+
+		/*
+			Allocate EPT Memory ENDs
+		*/
+
 
 		//	Allocate stack for the VM Exit Handler.
 		cpu.fake_stack = (UCHAR*) ExAllocatePoolWithTag( NonPagedPool , FAKE_STACK_SIZE, FAKE_STACK_TAG );
