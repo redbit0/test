@@ -36,6 +36,7 @@
     <ClInclude Include="asm_function.h" />
     <ClInclude Include="DriverDebug.h" />
     <ClInclude Include="DriverHeaders.h" />
+    <ClInclude Include="EPT.h" />
     <ClInclude Include="fc_drv_util.h" />
     <ClInclude Include="arch.h" />
     <ClInclude Include="start_vm.h" />

@@ -10,6 +10,7 @@
 #pragma once
 
 #include <ntintsafe.h>
+#include "EPT.h"
 
 #define VMXON_RGN_SIZE		4096
 #define VMCS_RGN_SIZE		4096
@@ -117,6 +118,13 @@ typedef struct _VCPU
 	UCHAR*					io_bitmap_b;
 	PHYSICAL_ADDRESS		io_bitmap_a_physical;
 	PHYSICAL_ADDRESS		io_bitmap_b_physical;
+
+	PEPTPML4				ept;
+	PHYSICAL_ADDRESS		ept_physical;
+	PEPTPDPT				ept_pdpte;
+	PHYSICAL_ADDRESS		ept_pdpte_physical;
+	PEPTPD					ept_pd;
+	PHYSICAL_ADDRESS		ept_pd_physical;
 
 	UCHAR*					fake_stack;
 
@@ -363,6 +371,7 @@ VOID SetBit(ULONG * dword, ULONG bit);
 
 
 VOID WriteVMCS(ULONG encoding, ULONG value);
+VOID WriteVMCS64(ULONG encoding, ULONGLONG value);
 VOID ReadMSR(ULONG msrEncoding);
 VOID WriteMSR(ULONG msrEncoding);
 ULONG GetSegmentDescriptorLimit(ULONG gdt_base, USHORT seg_selector);
