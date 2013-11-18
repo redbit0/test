@@ -35,6 +35,7 @@ ULONG			HandlerLogging = 0;
 ULONG			ScrubTheLaunch = 0;
 
 VMX_FEATURES				vmxFeatures;
+DWORD						vmxFeatures2;
 IA32_VMX_BASIC_MSR			vmxBasicMsr;
 IA32_FEATURE_CONTROL_MSR	vmxFeatureControl;
 
@@ -279,6 +280,7 @@ __declspec(naked) VOID StartVMX()
 
 			// ECX contains the VMX_FEATURES FLAGS (VMX supported if bit 5 equals 1)
 			MOV		vmxFeatures, ECX
+			mov		vmxFeatures2, edx
 
 			MOV		EAX, 0x80000008
 			CPUID
@@ -291,6 +293,16 @@ __declspec(naked) VOID StartVMX()
 	{
 		Log("VMX Support Not Present.", vmxFeatures);
 		goto Abort;
+	}
+
+	if (vmxFeatures2 & (1 << 12))
+	{
+		Log("[MTRR_DEBUG] MTRR IS USED!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! FTK", vmxFeatures2);
+		ReadMSR(0xfe); // IA32_MTRRCAP
+		Log("[MTRR_DEBUG] number of MTRR Range resiger", msr.Lo & 0xff);
+		if (msr.Lo & (1 << 8)) Log("[MTRR_DEBUG] Fix Range MTRR Support!!", msr.Lo);
+		if (msr.Lo & (1 << 10)) Log("[MTRR_DEBUG] Write Combine Mem type support", msr.Lo);
+		if (msr.Lo & (1 << 11)) Log("[MTRR_DEBUG] SMRR Interface support", msr.Lo);
 	}
 
 	Log("VMX Support Present.", vmxFeatures);
@@ -2739,7 +2751,7 @@ NTSTATUS allocate_vcpu(OUT VCPU& cpu)
 		ULONGLONG m = 0;
 		for (int i = 0; i < 512; i++)
 		{
-			cpu.ept_pd->a[i].u = m | 0x7 | (6 << 3) /*mem type WB*/ | (1 << 7) /* mem mapping 2m */ | (1 << 6)/* ignore pat mem type */;
+			cpu.ept_pd->a[i].u = m | 0x7 | (3 << 3) /*mem type WB*/| (1 << 7) /* mem mapping 2m */ | (1 << 6)/* ignore pat mem type */;
 			m += 2097152; // 2m
 		}
 
