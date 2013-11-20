@@ -19,7 +19,11 @@
 #define FAKE_STACK_TAG		'ekaf'
 
 
+//>mingi
 
+#define PAGE_FAULT_EXCEPTIONBITMAP		14
+
+#define PAGE_FAULT_IN_NONPAGED_AREA		0X00000050
 
 //> somma
 

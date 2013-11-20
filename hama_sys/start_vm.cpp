@@ -11,6 +11,7 @@
 #include "DriverDebug.h"
 #include "scancode.h"
 #include "start_vm.h"
+#include "mem.h"
 #include <wdm.h>
 
 
@@ -506,7 +507,7 @@ __declspec( naked ) VOID StartVMX( )
 	{
 		PUSH	DWORD PTR 0
 		PUSH	DWORD PTR _vcpu.vmcs_region_physical.LowPart
-		int 3
+		//int 3
 		_emit	0x66	// VMCLEAR [ESP]
 		_emit	0x0F
 		_emit	0xc7
@@ -704,8 +705,16 @@ __declspec( naked ) VOID StartVMX( )
 				WriteVMCS(IO_BITMAP_B_HIGH, _vcpu.io_bitmap_b_physical.HighPart);
 				WriteVMCS(IO_BITMAP_B, _vcpu.io_bitmap_b_physical.LowPart);
 
+				set_bit32(&temp32, PAGE_FAULT_EXCEPTIONBITMAP);
 
+				Log( "Setting PAGE_FAULT_BITMAP", temp32 );
+				WriteVMCS( 0x00004004, temp32 );
 
+				Log( "Setting PAGE_FAULT ERROR-CODE MASK", 0xFFFFFFFF );
+				WriteVMCS( 0x00004006, 0x00000000);
+
+				Log( "Setting PAGE_FAULT ERROR-CODE MATCH", PAGE_FAULT_IN_NONPAGED_AREA );
+				WriteVMCS( 0x00004008, PAGE_FAULT_IN_NONPAGED_AREA);
 
 	//	Get the CR3-target count, MSR store/load counts, et cetera
 	//
@@ -1388,11 +1397,17 @@ ULONG		GuestEDI;
 ULONG		GuestESI;
 ULONG		GuestEBP;
 
+ULONG		GuestLinearAddress;
+ULONG		PhysicalAddress;
+
 ULONG		movcrControlRegister;
 ULONG		movcrAccessType;
 ULONG		movcrOperandType;
 ULONG		movcrGeneralPurposeRegister;
 ULONG		movcrLMSWSourceData;
+
+PTE			pte;
+PBOOLEAN	pisLargePage;
 
 //ULONG		ErrorCode;
 
@@ -1775,6 +1790,44 @@ __declspec( naked ) VOID VMMEntryPoint( )
 	//  *** EXIT REASON CHECKS START HERE ***  //
 	//                                         //
 	/////////////////////////////////////////////
+
+	//////////////
+	//          //
+	//   EVENT  //
+	//          //
+	//////////////
+
+	if( ExitReason == 0x00000000 )
+	{
+		Log( "Event ", ExitReason );
+
+		Log( "Guest CR3", GuestCR3);
+
+		__asm
+		{
+			PUSHAD
+		
+			MOV		EAX, 0x0000640A
+		
+			_emit	0x0F	// VMREAD  EBX, EAX
+			_emit	0x78
+			_emit	0xC3
+		
+			MOV		GuestLinearAddress, EBX
+		
+			POPAD
+		}
+		
+		Log( "Guest Linear Address", GuestLinearAddress);
+
+		MmuGetPageEntryPAE(GuestCR3, GuestLinearAddress, &pte, pisLargePage);
+
+		PHY_TO_FRAME(pte.PageBaseAddr);
+
+		Log("Frame", pte);
+
+		//goto Resume;
+	}
 
 	/////////////////////////////////////////////////////////////////////////////////////
 	//                                                                                 //
@@ -2590,4 +2643,188 @@ void free_vcpu(IN OUT VCPU& cpu)
 		ExFreePoolWithTag(cpu.fake_stack, FAKE_STACK_TAG);
 		cpu.fake_stack = NULL;
 	}	
+}
+
+static NTSTATUS MmuGetPageEntryPAE(ULONG cr3, ULONG va, PPTE ppte, PBOOLEAN pisLargePage)
+{
+	NTSTATUS status;
+	ULONG addr;
+	PTE p;
+
+	Log("MmuGetPageEntryPAE() cr3", cr3);
+	Log("MmuGetPageEntryPAE() va", va);
+
+	// Read PDPTE
+	addr = CR3_TO_PDPTBASE_PAE(cr3) + (VA_TO_PDPTE(va)*sizeof(PTE));
+	Log("MmuGetPageEntry() Reading phy (NOT large)", addr);
+	status = MmuReadPhysicalRegion(addr, &p, sizeof(PTE));
+	if (status != STATUS_SUCCESS) {
+		Log("MmuGetPageEntry() cannot read PDPTE", addr);
+		return STATUS_UNSUCCESSFUL;
+	}
+
+	Log("MmuGetPageEntry() PDE read", p);
+
+	if (!p.Present)
+		return STATUS_UNSUCCESSFUL;
+
+	// Read PDE
+	addr = PDPTE_TO_PDBASE(p.PageBaseAddr) + (VA_TO_PDE(va)*sizeof(PTE));
+	Log("MmuGetPageEntry() Reading phy (NOT large)", addr);
+	status = MmuReadPhysicalRegion(addr, &p, sizeof(PTE));
+	if (status != STATUS_SUCCESS) {
+		Log("MmuGetPageEntry() cannot read PDE", addr);
+		return STATUS_UNSUCCESSFUL;
+	}
+
+	// If it's present and it's a 2MB page, then this is a hit
+	if(p.LargePage) {
+		if (ppte) *ppte = p;
+		*pisLargePage = TRUE;
+		return STATUS_SUCCESS;
+	}
+
+	// Read PTE
+	addr = FRAME_TO_PHY(p.PageBaseAddr) + (VA_TO_PTE_PAE(va)*sizeof(PTE));
+	status = MmuReadPhysicalRegion(addr, &p, sizeof(PTE));
+	if (status != STATUS_SUCCESS) {
+		Log("MmuGetPageEntry() cannot read PTE", addr);
+		return STATUS_UNSUCCESSFUL;
+	}
+
+	Log("MmuGetPageEntry() PTE read.", p);
+
+	if (!p.Present)
+		return STATUS_UNSUCCESSFUL;
+
+	if (ppte) *ppte = p;
+	*pisLargePage = FALSE;
+
+	return STATUS_SUCCESS;
+}
+
+NTSTATUS MmuReadWritePhysicalRegion(ULONG phy, PVOID buffer, ULONG size, BOOLEAN isWrite)
+{
+	NTSTATUS status=STATUS_UNSUCCESSFUL;
+	ULONG dwLogicalAddress=0;
+	PTE entryOriginal;
+
+	// Check that the memory region to read does not cross multiple frames
+	if (PHY_TO_FRAME(phy) != PHY_TO_FRAME(phy+size-1)) {
+	Log("Error: physical region crosses multiple frames", phy);
+	return STATUS_UNSUCCESSFUL;
+	}
+
+	status = MmuMapPhysicalPage(phy, &dwLogicalAddress, &entryOriginal);
+	if (status != STATUS_SUCCESS) return STATUS_UNSUCCESSFUL;
+
+	//  dwLogicalAddress += PAGE_OFFSET(phy);
+
+	if (!isWrite) {
+	// Read memory page
+	Log("MmuReadWritePhysicalRegion() Read size", size);
+	Log("MmuReadWritePhysicalRegion() Read from va", dwLogicalAddress);
+
+	memcpy(buffer, (PUCHAR) dwLogicalAddress, size);
+	} else {
+	// Write to memory page
+	Log("MmuReadWritePhysicalRegion() Write size", size);
+	Log("MmuReadWritePhysicalRegion() Write from va", dwLogicalAddress);
+
+	memcpy((PUCHAR) dwLogicalAddress, buffer, size);
+	}
+
+	Log("[MMU] MmuReadWritePhysicalRegion() All done!", 0);
+
+	MmuUnmapPhysicalPage(dwLogicalAddress, entryOriginal);
+
+	return STATUS_SUCCESS;
+}
+
+NTSTATUS MmuMapPhysicalPage(ULONG phy, PULONG pva, PPTE pentryOriginal)
+{
+	NTSTATUS status;
+	ULONG dwEntryAddress, dwLogicalAddress=0;
+	PTE *pentry;
+
+	//Get unused PTE address in the current process
+	Log("MmuMapPhysicalPage() Searching for unused PTE...", 0);
+	status = MmuFindUnusedPTE(&dwLogicalAddress);
+	Log("MmuMapPhysicalPage() Unused PTE found at", dwLogicalAddress);
+	if (status != STATUS_SUCCESS) return STATUS_UNSUCCESSFUL;
+
+	dwEntryAddress = VIRTUAL_PT_BASE + (VA_TO_PTE(dwLogicalAddress) * sizeof(PTE));
+	pentry = (PPTE) dwEntryAddress;
+
+	/* Save original PT entry */
+	*pentryOriginal = *pentry;
+
+	/* Replace PT entry */
+	pentry->Present         = 1;
+	pentry->Writable        = 1;
+	pentry->Owner           = 1;
+	pentry->WriteThrough    = 0;
+	pentry->CacheDisable    = 0;
+	pentry->Accessed        = 0;
+	pentry->Dirty           = 0;
+	pentry->LargePage       = 0;
+	pentry->Global          = 0;
+	pentry->ForUse1         = 0;
+	pentry->ForUse2         = 0;
+	pentry->ForUse3         = 0;
+	pentry->PageBaseAddr    = PHY_TO_FRAME(phy);
+	MmuInvalidateTLB(dwLogicalAddress);
+
+	*pva = dwLogicalAddress;
+
+	return STATUS_SUCCESS;
+}
+
+NTSTATUS MmuUnmapPhysicalPage(ULONG va, PTE entryOriginal)
+{
+	PPTE pentry;
+
+	/* Restore original PTE */
+	pentry = (PPTE) (VIRTUAL_PT_BASE + (VA_TO_PTE(va) * sizeof(PTE)));
+	*pentry = entryOriginal;
+
+	MmuInvalidateTLB(va);
+
+	return STATUS_SUCCESS;
+}
+
+static VOID MmuInvalidateTLB(ULONG addr)
+{
+  __asm { 
+    MOV EAX, CR3;
+    MOV CR3, EAX;     
+  };
+}
+
+static NTSTATUS MmuFindUnusedPTE(PULONG pdwLogical)
+{
+  ULONG dwCurrentAddress, dwPTEAddr, dwPDEAddr, dwPDE, dwPTE;
+
+  for (dwCurrentAddress=PAGE_SIZE; dwCurrentAddress < 0x80000000; dwCurrentAddress += PAGE_SIZE) {
+    /* Check if memory page at logical address 'dwCurrentAddress' is free */
+    dwPDEAddr = VIRTUAL_PD_BASE + (VA_TO_PDE(dwCurrentAddress) * sizeof(PTE));
+
+    dwPDE = *(PULONG) dwPDEAddr;
+    if (!PDE_TO_VALID(dwPDE))
+      continue;
+
+    dwPTEAddr = VIRTUAL_PT_BASE + (VA_TO_PTE(dwCurrentAddress) * sizeof(PTE));
+
+    dwPTE = *(PULONG) dwPTEAddr;
+    if (PDE_TO_VALID(dwPTE)) {
+      /* Skip *valid* PTEs */
+      continue;
+    }
+
+    /* All done!*/
+    *pdwLogical = dwCurrentAddress;
+    return STATUS_SUCCESS;
+  }
+
+  return STATUS_UNSUCCESSFUL;
 }
