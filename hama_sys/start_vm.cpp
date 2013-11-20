@@ -295,17 +295,55 @@ __declspec(naked) VOID StartVMX()
 		goto Abort;
 	}
 
+	Log("VMX Support Present.", vmxFeatures);
+
 	if (vmxFeatures2 & (1 << 12))
 	{
-		Log("[MTRR_DEBUG] MTRR IS USED!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! FTK", vmxFeatures2);
+		Log("[MTRR_DEBUG] MTRR IS SUPPORTED!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!", vmxFeatures2);
+
 		ReadMSR(0xfe); // IA32_MTRRCAP
 		Log("[MTRR_DEBUG] number of MTRR Range resiger", msr.Lo & 0xff);
 		if (msr.Lo & (1 << 8)) Log("[MTRR_DEBUG] Fix Range MTRR Support!!", msr.Lo);
 		if (msr.Lo & (1 << 10)) Log("[MTRR_DEBUG] Write Combine Mem type support", msr.Lo);
 		if (msr.Lo & (1 << 11)) Log("[MTRR_DEBUG] SMRR Interface support", msr.Lo);
-	}
 
-	Log("VMX Support Present.", vmxFeatures);
+		ReadMSR(0x2ff);///IA32_MTRR_DEF_TYPE
+		if (msr.Lo & (1 << 11))
+		{
+			if (msr.Lo & (1 << 11)) Log("[MTRR_DEBUG] MTRR IS ENABLE!!!!! FTK", msr.Lo);
+			if (msr.Lo & (1 << 10)) Log("[MTRR_DEBUG] MTRR FIX RANGE ENABLE!!!", msr.Lo);
+			Log("[MTRR_DEBUG] MTRR DEFAULT MEMTYPE", msr.Lo & 0xff);
+			/*
+				if disable mtrr, default mem type is uc
+			*/
+		}
+		{
+#define PRINT_FIXRANGE_MTRR(msr_index, addr_size ) \
+	ReadMSR(msr_index); \
+	log_info "[MTRR_DEBUG] FIX RANGE %08x to %08x type : %d", addr, (addr + addr_size), (msr.Lo & 0xff) log_end addr += addr_size + 1;\
+	log_info "[MTRR_DEBUG] FIX RANGE %08x to %08x type : %d", addr, (addr + addr_size), ((msr.Lo >> 8) & 0xff) log_end addr += addr_size + 1; \
+	log_info "[MTRR_DEBUG] FIX RANGE %08x to %08x type : %d", addr, (addr + addr_size), ((msr.Lo >> 16) & 0xff) log_end addr += addr_size + 1; \
+	log_info "[MTRR_DEBUG] FIX RANGE %08x to %08x type : %d", addr, (addr + addr_size), ((msr.Lo >> 24) & 0xff) log_end addr += addr_size + 1; \
+	log_info "[MTRR_DEBUG] FIX RANGE %08x to %08x type : %d", addr, (addr + addr_size), (msr.Hi & 0xff) log_end addr += addr_size + 1; \
+	log_info "[MTRR_DEBUG] FIX RANGE %08x to %08x type : %d", addr, (addr + addr_size), ((msr.Hi >> 8) & 0xff) log_end addr += addr_size + 1; \
+	log_info "[MTRR_DEBUG] FIX RANGE %08x to %08x type : %d", addr, (addr + addr_size), ((msr.Hi >> 16) & 0xff) log_end addr += addr_size + 1; \
+	log_info "[MTRR_DEBUG] FIX RANGE %08x to %08x type : %d", addr, (addr + addr_size), ((msr.Hi >> 24) & 0xff) log_end addr += addr_size + 1;
+	
+
+			DWORD addr = 0;
+			PRINT_FIXRANGE_MTRR(0x250, 0xffff); // IA32_MTRR_FIX64K_00000
+			PRINT_FIXRANGE_MTRR(0x258, 0x3fff); // IA32_MTRR_FIX16K_80000
+			PRINT_FIXRANGE_MTRR(0x259, 0x3fff); // IA32_MTRR_FIX16K_A0000
+			PRINT_FIXRANGE_MTRR(0x268, 0xfff); // IA32_MTRR_FIX4K_C0000
+			PRINT_FIXRANGE_MTRR(0x269, 0xfff); // IA32_MTRR_FIX4K_C8000
+			PRINT_FIXRANGE_MTRR(0x26a, 0xfff); // IA32_MTRR_FIX4K_D0000
+			PRINT_FIXRANGE_MTRR(0x26b, 0xfff); // IA32_MTRR_FIX4K_D8000
+			PRINT_FIXRANGE_MTRR(0x26c, 0xfff); // IA32_MTRR_FIX4K_E0000
+			PRINT_FIXRANGE_MTRR(0x26d, 0xfff); // IA32_MTRR_FIX4K_E8000
+			PRINT_FIXRANGE_MTRR(0x26e, 0xfff); // IA32_MTRR_FIX4K_F0000
+			PRINT_FIXRANGE_MTRR(0x26f, 0xfff); // IA32_MTRR_FIX4K_F8000
+		}
+	}
 
 	//	(2)	Determine the VMX capabilities supported by the processor through
 	//		the VMX capability MSRs.
