@@ -1,0 +1,18 @@
+﻿빌드 시작: 2013-11-22 오후 10:10:57
+     1>2 노드의 "c:\Users\WAR_PC26\documents\visual studio 2012\Projects\solution1\hama_sys\hama_sys.vcxproj" 프로젝트(Build 대상)입니다.
+     1>ClCompile:
+         C:\Program Files (x86)\Microsoft Visual Studio 11.0\VC\bin\CL.exe /c /ZI /nologo /W3 /WX- /Od /Oy- /D WIN32 /D _DEBUG /D _WINDOWS /D _UNICODE /D UNICODE /Gm /EHsc /RTC1 /MDd /GS /fp:precise /Zc:wchar_t /Zc:forScope /Fo"Debug\\" /Fd"Debug\vc110.pdb" /Gd /TP /analyze- /errorReport:prompt DriverDebug.cpp DriverEntry.cpp fc_drv_util.cpp start_vm.cpp
+         start_vm.cpp
+     1>c:\users\war_pc26\documents\visual studio 2012\projects\solution1\hama_sys\start_vm.cpp(10): fatal error C1083: 포함 파일을 열 수 없습니다. 'DriverHeaders.h': No such file or directory
+         fc_drv_util.cpp
+     1>c:\users\war_pc26\documents\visual studio 2012\projects\solution1\hama_sys\fc_drv_util.cpp(10): fatal error C1083: 포함 파일을 열 수 없습니다. 'DriverHeaders.h': No such file or directory
+         DriverEntry.cpp
+     1>c:\users\war_pc26\documents\visual studio 2012\projects\solution1\hama_sys\driverentry.cpp(10): fatal error C1083: 포함 파일을 열 수 없습니다. 'DriverHeaders.h': No such file or directory
+         DriverDebug.cpp
+     1>c:\users\war_pc26\documents\visual studio 2012\projects\solution1\hama_sys\driverdebug.cpp(14): fatal error C1083: 포함 파일을 열 수 없습니다. 'DriverHeaders.h': No such file or directory
+         코드를 생성하고 있습니다...
+     1>"c:\Users\WAR_PC26\documents\visual studio 2012\Projects\solution1\hama_sys\hama_sys.vcxproj" 프로젝트를 빌드했습니다(Build 대상). - 실패
+
+빌드하지 못했습니다.
+
+경과 시간: 00:00:00.17
