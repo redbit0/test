@@ -1422,8 +1422,8 @@ __declspec(naked) VOID StartVMX()
 	Log("EPTP Low Addresssssssssssssssssssssssssssss", temp32);
 	WriteVMCS(0x201a, temp32);
 
-	WriteVMCS(0x280b, _vcpu.ept_pdpte_physical.HighPart);
-	WriteVMCS(0x280a, _vcpu.ept_pdpte_physical.LowPart);
+	//WriteVMCS(0x280b, _vcpu.ept_pdpte_physical.HighPart);
+	//WriteVMCS(0x280a, _vcpu.ept_pdpte_physical.LowPart);
 
 
 	//temp32 = (ULONG)_vcpu.ept_physical.HighPart;
@@ -2791,7 +2791,7 @@ NTSTATUS allocate_vcpu(OUT VCPU& cpu)
 
 		cpu.ept_pd = (PEPTPD)MmAllocateNonCachedMemory(sizeof(EPTPD));
 		cpu.ept_pd_physical = MmGetPhysicalAddress((void*)cpu.ept_pd);
-		RtlZeroMemory((void*)cpu.ept_pd, sizeof(EPTPD));
+		RtlZeroMemory((void*)cpu.ept_pd, sizeof(EPTPD));	
 
 		Log("EPT Address LowPart", cpu.ept_physical.LowPart);
 		Log("EPT Address HighPart", cpu.ept_physical.HighPart);
@@ -2809,9 +2809,19 @@ NTSTATUS allocate_vcpu(OUT VCPU& cpu)
 		ULONGLONG m = 0;
 		for (int i = 0; i < 512; i++)
 		{
-			cpu.ept_pd->a[i].u = m | 0x7 | (3 << 3) /*mem type WB*/| (1 << 7) /* mem mapping 2m */ | (1 << 6)/* ignore pat mem type */;
-			m += 2097152; // 2m
+			PEPTPT eptpt = (PEPTPT) MmAllocateNonCachedMemory(sizeof(EPTPT));
+			RtlZeroMemory((void*)eptpt, sizeof(EPTPT));
+			PHYSICAL_ADDRESS new_addr = MmGetPhysicalAddress((void*)eptpt);
+			//cpu.ept_pd->a[i].u = m | 0x7 | (3 << 3) /*mem type WB*/| (1 << 7) /* mem mapping 2m */ | (1 << 6)/* ignore pat mem type */;
+			// not useing 2M but 4K
+			cpu.ept_pd->a[i].u = new_addr.QuadPart | 0x7;
+			for (int k = 0; k < 512; k++)
+			{
+				eptpt->a[k].u = m | 0x7 | (3 << 3) /*mem type WB*/;
+				m += 4096;
+			}
 		}
+		Log("Allocate Last Mem", m);
 
 		/*
 		Allocate EPT Memory ENDs
